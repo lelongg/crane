@@ -42,7 +42,6 @@ let
     "bench"
     "doc"
     "plugin"
-    "proc-macro"
     "harness"
     "required-features" # only affects selection of a target, does not actually enable any features
 
