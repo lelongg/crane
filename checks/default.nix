@@ -8,13 +8,27 @@ in
 onlyDrvs (lib.makeScope myLib.newScope (self:
 let
   callPackage = self.newScope { };
-  myLibLlvmTools = myLib.overrideToolchain (pkgs.rust-bin.stable.latest.minimal.override {
+  myLibLlvmTools = myLib.overrideToolchain (p: p.rust-bin.stable.latest.minimal.override {
     extensions = [ "llvm-tools" ];
   });
   x64Linux = pkgs.hostPlatform.system == "x86_64-linux";
   aarch64Darwin = pkgs.hostPlatform.system == "aarch64-darwin";
 in
 {
+  behaviorChangesWithFeatures =
+    let
+      cmd = myLib.buildPackage {
+        pname = "behaviorChangesWithFeatures";
+        version = "0.0.1";
+        src = myLib.cleanCargoSource ./behaviorChangesWithFeatures;
+        doCheck = true; # Explicitly repro original report
+      };
+    in
+    pkgs.runCommand "behaviorChangesWithFeatures" { } ''
+      diff <(echo prod) <(${cmd}/bin/app)
+      touch $out
+    '';
+
   # https://github.com/ipetkov/crane/issues/411
   bzip2Sys = myLib.buildPackage {
     src = ./bzip2-sys;
@@ -22,6 +36,8 @@ in
     installCargoArtifactsMode = "use-zstd";
     nativeBuildInputs = [ pkgs.pkg-config ];
   };
+
+  cleanCargoSourceWorksWithNonPaths = myLib.cleanCargoSource pkgs.ripgrep.src;
 
   cleanCargoTomlTests = callPackage ./cleanCargoTomlTests { };
 
@@ -242,6 +258,8 @@ in
       })
     ];
 
+  cratePatching = callPackage ./cratePatching { };
+
   customCargoTargetDirectory =
     let
       simple = self.simple.overrideAttrs (_old: {
@@ -255,6 +273,29 @@ in
       ${simple}/bin/simple
       touch $out
     '';
+
+  customDummy = myLib.buildDepsOnly {
+    dummySrc = pkgs.stdenv.mkDerivation {
+      pname = "custom-dummy";
+      version = "0.0.0";
+      src = myLib.cleanCargoSource ./simple;
+      postInstall = ''
+        mkdir -p $out
+        cp -r . $out
+        echo 'fn main() {}' > $out/src/main.rs
+        find $out
+      '';
+    };
+  };
+
+  customDummyWithMkDummySrcNoPname = myLib.buildDepsOnly {
+    dummySrc = myLib.mkDummySrc {
+      src = myLib.cleanCargoSource ./simple;
+      postInstall = ''
+        touch $out/blah.txt
+      '';
+    };
+  };
 
   # https://github.com/ipetkov/crane/pull/234
   nonJsonCargoBuildLog =
@@ -321,8 +362,6 @@ in
 
   depsOnlyCargoDoc = myLib.buildDepsOnly {
     src = ./workspace;
-    version = "0.0.1";
-    pname = "workspace";
     buildPhaseCargoCommand = "cargo doc --workspace";
   };
 
@@ -344,6 +383,42 @@ in
 
   features = callPackage ./features { };
 
+  fileset = myLib.buildPackage {
+    src = lib.fileset.toSource {
+      root = ./simple;
+      fileset = myLib.fileset.commonCargoSources ./simple;
+    };
+  };
+
+  filesetBuildScript = myLib.buildPackage {
+    src = lib.fileset.toSource {
+      root = ./with-build-script;
+      fileset = myLib.fileset.commonCargoSources ./with-build-script;
+    };
+  };
+
+  filesetWorkspace = myLib.buildPackage {
+    src = lib.fileset.toSource {
+      root = ./workspace;
+      fileset = myLib.fileset.commonCargoSources ./workspace;
+    };
+  };
+
+  filesetWorkspaceInheritance = myLib.buildPackage {
+    src = lib.fileset.toSource {
+      root = ./workspace-inheritance;
+      fileset = myLib.fileset.commonCargoSources ./workspace-inheritance;
+    };
+  };
+
+  filesetWorkspaceRoot = myLib.buildPackage {
+    src = lib.fileset.toSource {
+      root = ./workspace-root;
+      fileset = myLib.fileset.commonCargoSources ./workspace-root;
+    };
+    pname = "workspace-root";
+  };
+
   gitOverlappingRepo = myLib.buildPackage {
     src = ./git-overlapping;
   };
@@ -353,15 +428,11 @@ in
   };
 
   illegalBin = myLib.buildPackage {
-    pname = "illegalBin";
-    version = "0.0.1";
     src = ./illegal-bin;
   };
 
   manyLibs = myLib.buildPackage {
     src = ./with-libs;
-    pname = "my-libs";
-    version = "0.0.1";
     cargoArtifacts = null;
   };
 
@@ -401,6 +472,10 @@ in
       '';
     };
 
+  multiBinSmoke = myLib.buildPackage {
+    src = myLib.cleanCargoSource ./mkDummySrcTests/multibin/input;
+  };
+
   multiOutputDerivation = myLib.buildPackage {
     src = ./simple;
     outputs = [ "out" "doc" ];
@@ -411,7 +486,7 @@ in
 
   noStd =
     let
-      noStdLib = myLib.overrideToolchain (pkgs.rust-bin.stable.latest.minimal.override {
+      noStdLib = myLib.overrideToolchain (p: p.rust-bin.stable.latest.minimal.override {
         targets = [
           "thumbv6m-none-eabi"
           "x86_64-unknown-none"
@@ -421,13 +496,13 @@ in
     lib.optionalAttrs x64Linux (noStdLib.buildPackage {
       src = noStdLib.cleanCargoSource ./no_std;
       CARGO_BUILD_TARGET = "x86_64-unknown-none";
-      cargoCheckExtraArgs = "--lib --bins --examples";
+      cargoCheckExtraArgs = "--bins --examples";
       doCheck = false;
     });
 
   bindeps =
     let
-      bindepsLib = myLib.overrideToolchain (pkgs.rust-bin.nightly.latest.minimal.override {
+      bindepsLib = myLib.overrideToolchain (p: p.rust-bin.nightly.latest.minimal.override {
         targets = [
           "wasm32-unknown-unknown"
           "x86_64-unknown-none"
@@ -437,7 +512,7 @@ in
     lib.optionalAttrs x64Linux (bindepsLib.buildPackage {
       src = bindepsLib.cleanCargoSource ./bindeps;
       CARGO_BUILD_TARGET = "x86_64-unknown-none";
-      cargoCheckExtraArgs = "--lib --bins --examples";
+      cargoCheckExtraArgs = "--bins --examples";
       doCheck = false;
     });
 
@@ -451,6 +526,11 @@ in
 
   simple = myLib.buildPackage {
     src = myLib.cleanCargoSource ./simple;
+  };
+
+  simpleNoDeps = myLib.buildPackage {
+    src = myLib.cleanCargoSource ./simple-no-deps;
+    cargoVendorDir = "/dev/null";
   };
 
   simpleWithLockOverride = myLib.buildPackage {
@@ -473,9 +553,11 @@ in
   simpleGitWithHashes = myLib.buildPackage {
     src = myLib.cleanCargoSource ./simple-git;
     outputHashes = {
-      "git+https://github.com/BurntSushi/byteorder.git#2e17045ca2580719b2df78973901b56eb8a86f49" = "sha256-YgwtCY93fzrCrLJgrYBHJOwecD1dcVOo/ZS7hh+LcgA=";
+      "git+https://github.com/BurntSushi/byteorder.git#5a82625fae462e8ba64cec8146b24a372b4d75c6" = "sha256-wDzXLhmBNcqrIrH/k7gcu+k/52XqidbpfrlAEFnY47c=";
       "git+https://github.com/dtolnay/rustversion.git?rev=2abd4d0e00db08bb91145cb88e5dcbad2f45bbcb#2abd4d0e00db08bb91145cb88e5dcbad2f45bbcb" = "sha256-deS6eoNuWPZ1V3XO9UzR07vLHZjT9arAYL0xEJCoU6E=";
-      "git+https://github.com/rust-lang/libc.git?branch=main#40741baa1d892518fd3c39795e962058ff558fb9" = "sha256-vg/KRYC3NPM3J+RY/SU3vqQr/JbJkQ7VPu97IxIhZRk=";
+      "git+https://github.com/dtolnay/unicode-ident.git?rev=a8736e7e62be959d87970d2d137a098ba533d78b#a8736e7e62be959d87970d2d137a098ba533d78b" = "sha256-++OSSdXBaHKeJnC8LOq/ouL+UAJMasDVsBzFClLnjaU=";
+      "git+https://github.com/ipetkov/crane-test-repo?branch=something/or/other#be0d3c039d260457a55c26e229ad9aa30242c2cf" = "sha256-X6Unf7eirBm6Lat99nROpPd9EUQUL0ru++zDkubj57I=";
+      "git+https://github.com/rust-lang/libc.git?branch=main#a0f5b4b21391252fe38b2df9310dc65e37b07d9f" = "sha256-UwNxrPk6jrmtXeYef+RYYNfpNSlHQllANs/U4bmxlok=";
       "git+https://github.com/seanmonstar/num_cpus.git?tag=v1.13.1#5f1b03332000b4c4274b5bd35fac516049ff1c6b" = "sha256-mNMxS/WXjNokO9mFXQSwyuIpIp/n94EQ9Ni0Bl40es8=";
     };
     buildInputs = lib.optionals isDarwin [
@@ -512,6 +594,13 @@ in
     src = ./simple;
     cargoArtifacts = myLib.buildDepsOnly {
       src = ./simple;
+    };
+  };
+
+  runCargoDocTests = myLib.cargoDocTest {
+    src = ./simple-only-tests;
+    cargoArtifacts = myLib.buildDepsOnly {
+      src = ./simple-only-tests;
     };
   };
 
@@ -558,14 +647,6 @@ in
         touch $out
       fi
     '';
-
-  # Test building a real world example
-  ripgrep = myLib.buildPackage {
-    inherit (pkgs.ripgrep) pname src version;
-    buildInputs = lib.optionals isDarwin [
-      pkgs.libiconv
-    ];
-  };
 
   smoke = callPackage ./smoke.nix { };
   smokeSimple = self.smoke [ "simple" ] self.simple;
@@ -617,7 +698,7 @@ in
     inherit myLib;
   };
 
-  vendorCargoDeps =
+  vendorCargoDepsCombinations =
     let
       src = ./workspace;
       cargoLock = ./workspace/Cargo.lock;
@@ -719,19 +800,14 @@ in
 
   workspace = myLib.buildPackage {
     src = myLib.cleanCargoSource ./workspace;
-    pname = "workspace";
-    version = "0.0.1";
   };
 
   workspaceHack = myLib.buildPackage {
     src = myLib.cleanCargoSource ./workspace-hack;
-    pname = "workspace-hack";
-    version = "0.0.1";
   };
 
   workspaceInheritance = myLib.buildPackage {
     src = myLib.cleanCargoSource ./workspace-inheritance;
-    pname = "workspace-inheritance";
   };
 
   # https://github.com/ipetkov/crane/issues/209
@@ -752,10 +828,15 @@ in
     pname = "workspace-root";
   };
 
+  # https://github.com/ipetkov/crane/issues/268
+  workspaceRootSpecificBin = myLib.buildPackage {
+    src = myLib.cleanCargoSource ./workspace-root;
+    pname = "workspace-root";
+    cargoExtraArgs = "--bin print";
+  };
+
   workspaceGit = myLib.buildPackage {
     src = myLib.cleanCargoSource ./workspace-git;
-    pname = "workspace-git";
-    version = "0.0.1";
   };
 
   zstdNoChange =

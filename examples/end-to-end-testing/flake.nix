@@ -3,28 +3,29 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        flake-utils.follows = "flake-utils";
-      };
-    };
+    crane.url = "github:ipetkov/crane";
 
     flake-utils.url = "github:numtide/flake-utils";
+
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
-  outputs = { nixpkgs, crane, flake-utils, ... }:
+  outputs = { nixpkgs, crane, flake-utils, rust-overlay, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ (import rust-overlay) ];
+        };
         inherit (pkgs) lib;
-        craneLib = crane.lib.${system};
-        src = craneLib.cleanCargoSource (craneLib.path ./.);
+
+        craneLib = (crane.mkLib pkgs).overrideToolchain (p: p.rust-bin.stable.latest.default);
+        src = craneLib.cleanCargoSource ./.;
 
         workspace = craneLib.buildPackage {
           inherit src;
-          pname = "example-e2e";
-          version = "0.1";
           doCheck = false;
           nativeBuildInputs = lib.optionals pkgs.stdenv.isDarwin
             (with pkgs.darwin.apple_sdk.frameworks; [
@@ -73,15 +74,12 @@
 
           touch $out
         '';
-
-        pkgsSupportsPackage = pkg:
-          lib.any (s: s == pkgs.stdenv.hostPlatform.config) pkg;
       in
       {
         checks = {
           inherit workspace;
           # Firefox is broken in some platforms (namely "aarch64-apple-darwin"), skip those
-        } // (lib.optionalAttrs (pkgsSupportsPackage pkgs.firefox.meta.platforms) {
+        } // (lib.optionalAttrs (lib.meta.availableOn system pkgs.firefox) {
           inherit runE2ETests;
         });
 

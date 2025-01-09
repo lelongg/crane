@@ -19,10 +19,7 @@ Sample `flake.nix`:
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
 
     flake-utils.url = "github:numtide/flake-utils";
   };
@@ -30,13 +27,11 @@ Sample `flake.nix`:
   outputs = { self, nixpkgs, crane, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs {
-          inherit system;
-        };
+        pkgs = nixpkgs.legacyPackages.${system};
+        craneLib = crane.mkLib pkgs;
 
-        craneLib = crane.lib.${system};
         my-crate = craneLib.buildPackage {
-          src = craneLib.cleanCargoSource (craneLib.path ./.);
+          src = craneLib.cleanCargoSource ./.;
 
           buildInputs = [
             # Add additional build inputs here

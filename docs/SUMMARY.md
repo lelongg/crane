@@ -10,6 +10,7 @@
 * [Getting started](./getting-started.md)
   * [Quick start](./examples/quick-start.md)
   * [Quick start (simple)](./examples/quick-start-simple.md)
+  * [Quick start (workspace)](./examples/quick-start-workspace.md)
   * [Custom toolchain](./examples/custom-toolchain.md)
   * [Alternative registry](./examples/alt-registry.md)
   * [Building standard library crates](./examples/build-std.md)
@@ -20,10 +21,12 @@
   * [Workspace with Trunk](./examples/trunk-workspace.md)
   * [End-to-End Testing](./examples/end-to-end-testing.md)
   * [Building with SQLx](./examples/sqlx.md)
-* [Source filtering](./source-filtering.md)
+* [Source filtering and filesets](./source-filtering.md)
 * [Local development](./local_development.md)
 * [Custom cargo commands](./custom_cargo_commands.md)
 * [Customizing builds](./customizing_builds.md)
+* [Overriding derivations after the fact](./overriding_derivations.md)
+* [Patching sources of dependencies](./patching_dependency_sources.md)
 ---
 - [API Reference](./API.md)
 ---
@@ -42,6 +45,8 @@
   * [Dealing with sandbox-unfriendly build scripts](./faq/sandbox-unfriendly-build-scripts.md)
   * [Cargo.toml is not at the source root](./faq/workspace-not-at-source-root.md)
   * [Found invalid metadata files for crate error](./faq/invalid-metadata-files-for-crate.md)
+  * [A git dependency fails to find a file by a relative path](./faq/git-dep-cannot-find-relative-path.md)
+  * [Controlling whether or not hooks run during `buildDepsOnly`](./faq/control-when-hooks-run.md)
 ---
 * [Advanced Techniques](./advanced/advanced.md)
   * [Overriding function behavior](./advanced/overriding-function-behavior.md)

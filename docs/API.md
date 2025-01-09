@@ -60,8 +60,9 @@ newLib = craneLib.appendCrateRegistries [
 
   # Or even
   (lib.registryFromSparse {
-    url = "https://index.crates.io/";
-    sha256 = "d16740883624df970adac38c70e35cf077a2a105faa3862f8f99a65da96b14a3";
+    indexUrl = "https://index.crates.io/config.json";
+    configSha256 = "1cxgzdm1ipqmgwnq7kgym92axna7pfyhgfla63vl7dvydwn3m52v";
+    fetchurlExtraArgs = {};
   })
 ];
 ```
@@ -91,6 +92,8 @@ to influence its behavior.
 * `src`: set to the result of `mkDummySrc` after applying the arguments set.
   This ensures that we do not need to rebuild the cargo artifacts derivation
   whenever the application source changes.
+* `CRANE_BUILD_DEPS_ONLY` is exported as an environment variable, in case this
+  is handy for scripts or hooks which may want to customize how they run
 
 #### Optional attributes
 * `buildPhaseCargoCommand`: A command to run during the derivation's build
@@ -127,7 +130,8 @@ to influence its behavior.
   be consumed without network access. Directory structure should basically
   follow the output of `cargo vendor`.
   - Default value: the result of `vendorCargoDeps` after applying the arguments
-    set (with the respective default values)
+    set (with the respective default values). Note if `dummySrc` is specified,
+    it will be used as the `src` passed into `vendorCargoDeps`
 * `checkPhaseCargoCommand`: A command to run during the derivation's check
   phase. Pre and post check hooks will automatically be run.
   - Default value: `"${cargoTestCommand} ${cargoExtraArgs}"`
@@ -137,9 +141,13 @@ to influence its behavior.
   Automatically derived if not passed in
   - Default value: `mkDummySrc args.src`
 * `pname`: package name of the derivation
-  - Default value: inherited from calling `crateNameFromCargoToml`
+  - Default value: inherited from calling `crateNameFromCargoToml`. Note if
+    `dummySrc` is specified, it will be used as the `src` passed into
+    `crateNameFromCargoToml`
 * `version`: version of the derivation
-  - Default value: inherited from calling `crateNameFromCargoToml`
+  - Default value: inherited from calling `crateNameFromCargoToml`. Note if
+    `dummySrc` is specified, it will be used as the `src` passed into
+    `crateNameFromCargoToml`
 
 #### Remove attributes
 The following attributes will be removed before being lowered to
@@ -215,8 +223,8 @@ install hooks.
   - Default value: `false`
 * `installPhaseCommand`: the command(s) which are expected to install the
   derivation's outputs.
-  - Default value: will look for a cargo build log and install all binary
-    targets listed there
+  - Default value: will look for a temporary installation directory created by
+    `installFromCargoBuildLogHook` and then install all of its contents
 
 #### Remove attributes
 The following attributes will be removed before being lowered to
@@ -233,7 +241,6 @@ environment variables during the build, you can bring them back via
 #### Native build dependencies and included hooks
 The following hooks are automatically added as native build inputs:
 * `installFromCargoBuildLogHook`
-* `jq`
 * `removeReferencesToVendoredSourcesHook`
 
 ### `craneLib.buildTrunkPackage`
@@ -318,8 +325,6 @@ Except where noted below, all derivation attributes are delegated to
 #### Optional attributes
 * `cargoAuditExtraArgs`: additional flags to be passed in the cargo-audit invocation
   - Default value: `"--ignore yanked"`
-* `cargoExtraArgs`: additional flags to be passed in the cargo invocation
-  - Default value: `""`
 * `pname`: the name of the derivation; will _not_ be introspected from a
   `Cargo.toml` file
   - Default value: `"crate"`
@@ -337,7 +342,6 @@ The following attributes will be removed before being lowered to
 environment variables during the build, you can bring them back via
 `.overrideAttrs`.
 * `cargoAuditExtraArgs`
-* `cargoExtraArgs`
 
 ### `craneLib.cargoDeny`
 `cargoDeny :: set -> drv`
@@ -494,6 +498,13 @@ Except where noted below, all derivation attributes are delegated to
 * `cargoExtraArgs`: additional flags to be passed in the cargo invocation (e.g.
   enabling specific features)
   - Default value: `"--locked"`
+* `docInstallRoot`: defines the exact directory to install to `$out/share`,
+  useful for overriding when compiling different targets. By default will honor
+  `$CARGO_TARGET_DIR` (or default to `./target` if not set) and
+  `$CARGO_BUILD_TARGET` (if set).
+  - Default value: `"${CARGO_TARGET_DIR:-target}/${CARGO_BUILD_TARGET:-}/doc"`
+    if such a directory exists, otherwise falls back to
+    `"${CARGO_TARGET_DIR:-target}/doc"`
 
 #### Remove attributes
 The following attributes will be removed before being lowered to
@@ -502,6 +513,27 @@ environment variables during the build, you can bring them back via
 `.overrideAttrs`.
 * `cargoDocExtraArgs`
 * `cargoExtraArgs`
+
+### `craneLib.cargoDocTest`
+
+`cargoDocTest :: set -> drv`
+
+Create a derivation which will run a `cargo test --doc` invocation in a cargo
+workspace. To run all or any tests for a workspace, consider `cargoTest`.
+
+Except where noted below, all derivation attributes are delegated to
+* `buildPhaseCargoCommand` will be set to run `cargo test --profile release` in
+  the workspace.
+  - `CARGO_PROFILE` can be set on the derivation to alter which cargo profile is
+    selected; setting it to `""` will omit specifying a profile altogether.
+* `pnameSuffix` will be set to `"-doctest"`
+
+#### Optional attributes
+* `cargoExtraArgs`: additional flags to be passed in the cargo invocation
+  - Default value: `"--locked"`
+* `cargoTestExtraArgs`: additional flags to be passed in the cargo
+  invocation
+  - Default value: `""`
 
 ### `craneLib.cargoFmt`
 
@@ -535,6 +567,40 @@ environment variables during the build, you can bring them back via
 `.overrideAttrs`.
 * `cargoExtraArgs`
 * `rustFmtExtraArgs`
+
+### `craneLib.taploFmt`
+
+`taploFmt :: set -> drv`
+
+Create a derivation which will run a `taplo fmt` invocation in a cargo
+workspace.
+
+Except where noted below, all derivation attributes are delegated to
+`mkCargoDerivation`, and can be used to influence its behavior.
+* `buildPhaseCargoCommand` will be set to run `taplo fmt` (in check mode) in the
+  workspace.
+* `cargoArtifacts` is disabled/cleared
+* `cargoVendorDir` is disabled/cleared
+* `pnameSuffix` will be set to `"-tomlfmt"`
+
+#### Optional attributes
+* `taploExtraArgs`: additional flags to be passed in the taplo invocation
+  - Default value: `""`
+
+`taplo` command line options for setting `taploExtraArgs` and configuration options
+for `taplo.toml` config files can be found in the _Command Line_ and _Configuration_
+sections of the [taplo documentation](https://taplo.tamasfe.dev/).
+
+#### Native build dependencies
+The `taplo` package is automatically appended as a native build input to any
+other `nativeBuildInputs` specified by the caller.
+
+#### Remove attributes
+The following attributes will be removed before being lowered to
+`mkCargoDerivation`. If you absolutely need these attributes present as
+environment variables during the build, you can bring them back via
+`.overrideAttrs`.
+* `taploExtraArgs`
 
 ### `craneLib.cargoLlvmCov`
 
@@ -591,7 +657,9 @@ environment variables during the build, you can bring them back via
 `cargoNextest :: set -> drv`
 
 Create a derivation which will run a `cargo nextest` invocation in a cargo
-workspace.
+workspace. Note that [`cargo nextest` doesn't run
+doctests](https://github.com/nextest-rs/nextest/issues/16), so you may also
+want to build a `cargoDocTest` derivation.
 
 Except where noted below, all derivation attributes are delegated to
 `mkCargoDerivation`, and can be used to influence its behavior.
@@ -618,8 +686,11 @@ Except where noted below, all derivation attributes are delegated to
 * `cargoLlvmCovExtraArgs`: additional flags to be passed in the cargo
   llvm-cov invocation
   - Default value: `"--lcov --output-path $out/coverage"`
-* `cargoNextestExtraArgs`: additional flags to be passed in the clippy invocation (e.g.
-  deny specific lints)
+* `cargoNextestExtraArgs`: additional flags to be passed in the nextest invocation
+  (e.g. specifying a profile)
+  - Default value: `""`
+  - Note that all flags from `cargo test` are supported.
+* `cargoNextestPartitionsExtraArgs`: additional flags to be passed in the nextest partition invocation
   - Default value: `""`
 * `partitions`: The number of separate nextest partitions to run. Useful if the
   test suite takes a long time and can be parallelized across multiple build
@@ -645,6 +716,7 @@ environment variables during the build, you can bring them back via
 * `cargoExtraArgs`
 * `cargoLlvmCovExtraArgs`
 * `cargoNextestExtraArgs`
+* `cargoNextestPartitionsExtraArgs`
 * `partitions`
 * `partitionType`
 * `withLlvmCov`
@@ -709,9 +781,17 @@ Except where noted below, all derivation attributes are delegated to
 #### Optional attributes
 * `cargoExtraArgs`: additional flags to be passed in the cargo invocation
   - Default value: `"--locked"`
-* `cargoTestArgs`: additional flags to be passed in the cargo
+* `cargoTestExtraArgs`: additional flags to be passed in the cargo
   invocation
   - Default value: `""`
+
+#### Remove attributes
+The following attributes will be removed before being lowered to
+`mkCargoDerivation`. If you absolutely need these attributes present as
+environment variables during the build, you can bring them back via
+`.overrideAttrs`.
+* `cargoExtraArgs`
+* `cargoTestExtraArgs`
 
 #### Remove attributes
 The following attributes will be removed before being lowered to
@@ -738,7 +818,7 @@ written (which may want to also call `craneLib.filterCargoSources`) to achieve t
 desired behavior.
 
 ```nix
-craneLib.cleanCargoSource (craneLib.path ./.)
+craneLib.cleanCargoSource ./.
 ```
 
 ### `craneLib.cleanCargoToml`
@@ -775,16 +855,20 @@ raised during evaluation.
 Extract a crate's name and version from its Cargo.toml file.
 
 The resulting `pname` attribute will be populated with the value of the
-Cargo.toml's (top-level) `package.name` attribute, if present and if the
-value is a string. Otherwise `workspace.package.name` will be used if it is
-present _and_ the value is a string. Otherwise a placeholder version field will
-be used.
+Cargo.toml's (top-level) attributes in the following order, where the first
+attribute (with a string value) will be chosen:
+1. `package.metadata.crane.name`
+1. `package.name`
+1. `workspace.metadata.crane.name`
+1. (Deprecated) `workspace.package.name`
+1. Otherwise a placeholder name will be used
 
 The resulting `version` attribute will be populated with the value of the
-Cargo.toml's (top-level) `package.version` attribute, if present and if the
-value is a string. Otherwise `workspace.package.version` will be used if it is
-present _and_ the value is a string. Otherwise a placeholder version field will
-be used.
+Cargo.toml's (top-level) attributes in the following order, where the first
+attribute (with a string value) will be chosen:
+1. `package.version`
+1. `workspace.package.version`
+1. Otherwise a placeholder version will be used
 
 Note that *only the root `Cargo.toml` of the specified source will be checked*.
 Directories **will not be crawled** to resolve potential workspace inheritance.
@@ -875,6 +959,25 @@ craneLib.devShell {
 }
 ```
 
+Note that it is possible to override the underlying `mkShell` (for example to
+customize the build environment further) like so:
+
+```nix
+let
+  moldDevShell = craneLib.devShell.override {
+    # For example, use the mold linker
+    mkShell = pkgs.mkShell.override {
+      stdenv = pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv;
+    };
+  };
+in
+moldDevShell {
+  packages = [
+    # etc...
+  ];
+}
+```
+
 ### `craneLib.downloadCargoPackage`
 
 `downloadCargoPackage :: set -> drv`
@@ -891,6 +994,25 @@ registry's API if necessary.
 * `name`: the name of the crate
 * `source`: the source key recorded in the Cargo.lock file
 * `version`: the version of the crate
+
+#### Attributes of the vendor-prep derivation
+* `dontBuild`: `true`
+* `dontConfigure`: `true`
+* `dontFixup`: `true`
+* `pname`: `"cargo-package-"` suffixed by the package name in `Cargo.lock`
+* `sourceRoot`: `"./crate"`
+* `version`: inherited from the package version in `Cargo.lock`
+* `unpackPhase`: This phase will:
+   1. run the `preUnpack` hook
+   1. create an empty directory named `./crate`
+   1. unpack the crate's tarball under `./crate`
+   1. run the `postUnpack` hook
+* `installPhase`: This phase will:
+   1. run the `preInstall` hook
+   1. move the contents of the current directory (i.e. `./crate` by default) to
+      `$out`
+   1. populate `$out/.cargo-checksum.json`
+   1. run the `postInstall` hook
 
 ### `craneLib.downloadCargoPackageFromGit`
 
@@ -914,6 +1036,24 @@ any crates it contains for vendoring.
 * `sha256`: the sha256 hash of the (unpacked) download. If provided `fetchgit` will be used
   (instead of `builtins.fetchGit`) which allows for offline evaluations.
   - Default value: `null`
+
+#### Attributes of the vendor-prep derivation
+* `dontBuild`: `true`
+* `dontConfigure`: `true`
+* `dontFixup`: `true`
+* `installPhase`: This phase will:
+   1. run the `preInstall` hook
+   1. Prepare the current directory for vendoring by:
+      - Searching for all `Cargo.toml` files
+      - Copying their parent directory to `$out/$crate` (where `$crate` is the
+        package name and version as defined in `Cargo.toml`)
+      - Populating `.cargo-checksum.json`
+      - Running `crane-resolve-workspace-inheritance` on the `Cargo.toml`
+      - Note that duplicate crates (whose name and version collide) are ignored
+   1. run the `postInstall` hook
+* `nativeBuildInputs`: A list of the `cargo`, `craneUtils`, and `jq` packages
+* `name`: set to `"cargo-git"`
+* `src`: the git repo checkout, as determined by the input parameters
 
 ### `craneLib.findCargoFiles`
 
@@ -939,11 +1079,11 @@ will retain the following files from a given source:
 
 ```nix
 cleanSourceWith {
-  src = craneLib.path ./.;
+  src = ./.;
   filter = craneLib.filterCargoSources;
+  name = "source"; # Be reproducible, regardless of the directory name
 }
 ```
-
 Note that it is possible to compose source filters, especially if
 `filterCargoSources` omits files which are relevant to the build. For example:
 
@@ -955,10 +1095,52 @@ let
     (markdownFilter path type) || (craneLib.filterCargoSources path type);
 in
 cleanSourceWith {
-  src = craneLib.path ./.;
+  src = ./.;
   filter = markdownOrCargo;
+  name = "source"; # Be reproducible, regardless of the directory name
 }
 ```
+
+### `craneLib.fileset.cargoTomlAndLock`
+
+`cargoTomlAndLock :: path -> fileset`
+
+A [fileset] helper which will only include any `Cargo.toml` and `Cargo.lock`
+files from the specified path.
+
+### `craneLib.fileset.commonCargoSources`
+
+`commonCargoSources :: path -> fileset`
+
+A [fileset] helper which will only include any files commonly used by cargo
+projects from the specified path. Essentially a union of:
+
+* `craneLib.fileset.cargoTomlAndLock`
+* `craneLib.fileset.rust`
+* `craneLib.fileset.toml`
+
+### `craneLib.fileset.configToml`
+
+`configToml :: path -> fileset`
+
+A [fileset] helper which will only include `config.toml` files from the
+specified path.
+
+Note that cargo usually only pays attention to `config.toml` files if they are
+present inside of a directory named `.cargo`. This fileset will contain any
+`config.toml` file, even if its parent directory is _not_ named `.cargo`.
+
+### `craneLib.fileset.rust`
+
+`rust :: path -> fileset`
+
+A [fileset] helper which will only include `*.rs` files from the specified path.
+
+### `craneLib.fileset.toml`
+
+`toml :: path -> fileset`
+
+A [fileset] helper which will only include `*.toml` files from the specified path.
 
 ### `craneLib.mkCargoDerivation`
 
@@ -1089,6 +1271,9 @@ build caches. More specifically:
   - Any changes to the `[package]` definition such as name and version
   - Any changes to the name or path of any target (such as benches, bins,
     examples, libs, or tests)
+  - Any removal or new definition of a `[[bin]]` target, or, any removal or new
+    definition of a file under `src/bin` when `autolib` is enabled in the
+    `Cargo.toml` file (this setting is `true` by default)
 
 #### Required attributes
 * `src`: a source directory which should be turned into a "dummy" form
@@ -1147,15 +1332,20 @@ build caches. More specifically:
 
 ### `craneLib.overrideToolchain`
 
-`overrideToolchain :: drv -> set`
+`overrideToolchain :: (set -> drv) -> set`
+`overrideToolchain :: drv -> set` (legacy)
 
 A convenience method to override and use tools (like `cargo`, `clippy`,
 `rustfmt`, `rustc`, etc.) from one specific toolchain. The input should be a
 single derivation which contains all the tools as binaries. For example, this
 can be the output of `oxalica/rust-overlay`.
 
+Note that in order to best support cross compilation, `overrideToolchain` should
+be provided a function (whose argument is a cross-compilation aware version of
+`pkgs`) which constructs the toolchain:
+
 ```nix
-craneLib.overrideToolchain myCustomToolchain
+craneLib.overrideToolchain (p: myCustomToolchainForPkgs p)
 ```
 
 ### `craneLib.path`
@@ -1277,6 +1467,47 @@ craneLib.registryFromGitIndex {
 # }
 ```
 
+### `craneLib.registryFromSparse`
+
+`registryFromSparse :: set -> set`
+
+Prepares a (sparse) crate registry into a format that can be passed directly to
+`appendCrateRegistries` using the registry's download URL.
+
+If the registry in question has a stable download URL (which either never
+changes, or it does so very infrequently), then `registryFromDownloadUrl` is a
+great and lightweight choice for including the registry. To get started,
+download the registry's `config.json` and copy the value of the `dl` entry.
+
+If the registry's download endpoint changes more frequently and you would like
+to infer the configuration directly from a git revision, consider using
+`registryFromGitIndex` as an alternative.
+
+If the registry needs a special way of accessing crate sources the
+`fetchurlExtraArgs` set can be used to influence the behavior of fetching the
+crate sources (e.g. by setting `curlOptsList`)
+
+#### Required attributes
+* `indexUrl`: an HTTP URL to the registry's config.json
+* `configSha256`: a sha256 hash of the contents of config.json
+
+#### Optional attributes
+* `fetchurlExtraArgs`: a set of arguments which will be passed on to the
+  `fetchurl` for each crate being sourced from this registry
+
+```nix
+craneLib.registryFromSparse {
+  indexUrl = "https://index.crates.io/config.json";
+  configSha256 = "1cxgzdm1ipqmgwnq7kgym92axna7pfyhgfla63vl7dvydwn3m52v";
+}
+# {
+#   "sparse+https://index.crates.io/config.json/" = {
+#     downloadUrl = "https://static.crates.io/crates/{crate}/{version}/download";
+#     fetchurlExtraArgs = { };
+#   };
+# }
+```
+
 ### `craneLib.urlForCargoPackage`
 
 `urlForCargoPackage :: set -> set`
@@ -1318,9 +1549,27 @@ At least one of the above attributes must be specified, or an error will be
 raised during evaluation.
 
 #### Optional attributes
-* `outputHashes`: a mapping of package-source to the sha256 of the (unpacked)
-  download. Useful for supporting fully offline evaluations.
+* `outputHashes`: a mapping of package-source to the `hash` attribute of the
+  (unpacked) download. Useful for supporting fully offline evaluations.
   - Default value: `[]`
+* `overrideVendorCargoPackage`: a function that will be called on every crate
+  vendored from a cargo registry, which allows for modifying the derivation
+  which will unpack the cargo tarball (e.g. to patch the crate source).
+  It will be called with the following parameters:
+  1. The `Cargo.lock` entry for that package (to allow conditional overrides
+     based on the package name/version/source, etc.)
+  1. The default `downloadCargoPackage` derivation
+  - Default value: `_p: drv: drv`
+* `overrideVendorGitCheckout`: a function that will be called on every unique
+  checkout vendored from a git repository, which allows for modifying the
+  derivation which will unpack the cargo crates found in the checkout (e.g. to
+  patch the crate sources). It will be called with the following
+  parameters:
+  1. A list of the `Cargo.lock` entries for each package which shares the same
+     repo URL and revision to checkout (to allow conditional overrides based on
+     the repo/checkout etc.)
+  1. The default `downloadCargoPackageFromGit` derivation
+  - Default value: `_ps: drv: drv`
 
 ### `craneLib.vendorCargoRegistries`
 
@@ -1338,6 +1587,14 @@ cargo can use for subsequent builds without needing network access.
 * `cargoConfigs`: a list of paths to all `.cargo/config.toml` files which may
   appear in the project. Ignored if `registries` is set.
   - Default value: `[]`
+* `overrideVendorCargoPackage`: a function that will be called on every crate
+  vendored from a cargo registry, which allows for modifying the derivation
+  which will unpack the cargo tarball (e.g. to patch the crate source).
+  It will be called with the following parameters:
+  1. The `Cargo.lock` entry for that package (to allow conditional overrides
+     based on the package name/version/source, etc.)
+  1. The default `downloadCargoPackage` derivation
+  - Default value: `_p: drv: drv`
 * `registries`: an attrset of registry names to their index URL. The default
   ("crates-io") registry need not be specified, as it will automatically be
   available, but it can be overridden if required.
@@ -1364,9 +1621,19 @@ access.
   `Cargo.lock` file (parsed via `builtins.fromTOML`)
 
 #### Optional attributes
-* `outputHashes`: a mapping of package-source to the sha256 of the (unpacked)
-  download. Useful for supporting fully offline evaluations.
+* `outputHashes`: a mapping of package-source to the `hash` attribute of the
+  (unpacked) download. Useful for supporting fully offline evaluations.
   - Default value: `[]`
+* `overrideVendorGitCheckout`: a function that will be called on every unique
+  checkout vendored from a git repository, which allows for modifying the
+  derivation which will unpack the cargo crates found in the checkout (e.g. to
+  patch the crate sources). It will be called with the following
+  parameters:
+  1. A list of the `Cargo.lock` entries for each package which shares the same
+     repo URL and revision to checkout (to allow conditional overrides based on
+     the repo/checkout etc.)
+  1. The default `downloadCargoPackageFromGit` derivation
+  - Default value: `_ps: drv: drv`
 
 #### Output attributes
 * `config`: the configuration entires needed to point cargo to the vendored
@@ -1404,9 +1671,27 @@ the vendored directories (i.e. this configuration can be appended to the
 * `cargoLockParsedList`: a list of attrsets representing the parsed contents of
   different `Cargo.lock` files to be included while vendoring.
   - Default value: `[]`
-* `outputHashes`: a mapping of package-source to the sha256 of the (unpacked)
-  download. Useful for supporting fully offline evaluations.
+* `outputHashes`: a mapping of package-source to the `hash` attribute of the
+  (unpacked) download. Useful for supporting fully offline evaluations.
   - Default value: `[]`
+* `overrideVendorCargoPackage`: a function that will be called on every crate
+  vendored from a cargo registry, which allows for modifying the derivation
+  which will unpack the cargo tarball (e.g. to patch the crate source).
+  It will be called with the following parameters:
+  1. The `Cargo.lock` entry for that package (to allow conditional overrides
+     based on the package name/version/source, etc.)
+  1. The default `downloadCargoPackage` derivation
+  - Default value: `_p: drv: drv`
+* `overrideVendorGitCheckout`: a function that will be called on every unique
+  checkout vendored from a git repository, which allows for modifying the
+  derivation which will unpack the cargo crates found in the checkout (e.g. to
+  patch the crate sources). It will be called with the following
+  parameters:
+  1. A list of the `Cargo.lock` entries for each package which shares the same
+     repo URL and revision to checkout (to allow conditional overrides based on
+     the repo/checkout etc.)
+  1. The default `downloadCargoPackageFromGit` derivation
+  - Default value: `_ps: drv: drv`
 * `registries`: an attrset of registry names to their index URL. The default
   ("crates-io") registry need not be specified, as it will automatically be
   available, but it can be overridden if required.
@@ -1480,6 +1765,10 @@ directory of vendored crate sources. It takes two positional arguments:
 **Automatic behavior:** if `cargoVendorDir` is set, then
 `configureCargoVendoredDeps "$cargoVendorDir" "$CARGO_HOME/config.toml"` will be
 run as a pre configure hook.
+
+### `craneLib.craneLib`
+
+A self-reference to the crane lib instance.
 
 ### `craneLib.inheritCargoArtifactsHook`
 
@@ -1595,9 +1884,15 @@ takes two positional arguments:
    * This log can be captured, for example, via `cargo build --message-format
      json-render-diagnostics >cargo-build.json`
 
-**Automatic behavior:** none
+Defines `postBuildInstallFromCargoBuildLog()` which will use a build log produced by
+cargo to find and install any binaries and libraries which have been built into
+a temporary location defined by `$postBuildInstallFromCargoBuildLogOut`
 
-**Required nativeBuildInputs**: assumes `cargo` and `jq` are available on the `$PATH`
+**Automatic behavior:** if `doNotPostBuildInstallCargoBinaries` is not set, then
+`$postBuildInstallFromCargoBuildLogOut` will be set to a temporary directory and
+`postBuildInstallFromCargoBuildLog` will be run as a post build hook.
+
+**Required nativeBuildInputs**: assumes `cargo` is available on the `$PATH`
 
 ### `craneLib.removeReferencesToVendoredSourcesHook`
 
@@ -1632,3 +1927,5 @@ Defines `replaceCargoLock()` which handles replacing or inserting a specified
 **Automatic behavior:** if `cargoLock` is set and
 `doNotReplaceCargoLock` is not set, then `replaceCargoLock "$cargoLock"` will be
 run as a pre patch hook.
+
+[fileset]: https://nixos.org/manual/nixpkgs/unstable/#sec-functions-library-fileset

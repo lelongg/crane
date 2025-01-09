@@ -1,18 +1,19 @@
 {
   inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     crane.url = "github:ipetkov/crane";
-    nixpkgs.follows = "crane/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { flake-utils, crane, ... }: flake-utils.lib.eachDefaultSystem (system:
+  outputs = { nixpkgs, flake-utils, crane, ... }: flake-utils.lib.eachDefaultSystem (system:
     let
-      craneLib = crane.lib.${system};
+      pkgs = nixpkgs.legacyPackages.${system};
+      craneLib = crane.mkLib pkgs;
     in
     {
       # https://github.com/ipetkov/crane/issues/446
       packages.default = craneLib.buildPackage {
-        src = craneLib.cleanCargoSource (craneLib.path ../../checks/simple);
+        src = craneLib.cleanCargoSource ../../checks/simple;
       };
     });
 }

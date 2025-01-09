@@ -86,14 +86,14 @@ let
     doCompare "customized-dummyrs" expected (mkDummySrc {
       src = input;
       dummyrs = writeText "dummy.rs" ''
-        #![feature(no_core, lang_items, start)]
+        #![feature(no_core, lang_items)]
         #[no_std]
         #[no_core]
         // #[no_gods]
         // #[no_masters]
 
-        #[start]
-        fn main(_: isize, _: *const *const u8) -> isize {
+        #[no_mangle]
+        extern "C" fn main(_: isize, _: *const *const u8) -> isize {
             0
         }
       '';
@@ -102,10 +102,18 @@ in
 linkFarmFromDrvs "cleanCargoToml" (lib.flatten [
   (cmpDummySrc "single" ./single)
   (cmpDummySrc "single-alt" ./single-alt)
+  # https://github.com/ipetkov/crane/issues/753
+  (cmpDummySrc "multibin" ./multibin)
   (cmpDummySrc "workspace" ./workspace)
   (cmpDummySrc "workspace-bindeps" ./workspace-bindeps)
   (cmpDummySrc "workspace-inheritance" ./workspace-inheritance)
 
   customized
   customizedDummyrs
+
+  # https://github.com/ipetkov/crane/issues/768
+  (cmpDummySrc "declaredBinWithMainrs" ./declaredBinWithMainrs)
+  (cmpDummySrc "declaredBinWithSrcBin" ./declaredBinWithSrcBin)
+  (cmpDummySrc "omittedBinWithMainrs" ./omittedBinWithMainrs)
+  (cmpDummySrc "omittedBinWithSrcBin" ./omittedBinWithSrcBin)
 ])

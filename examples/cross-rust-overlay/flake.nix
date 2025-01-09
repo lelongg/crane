@@ -4,19 +4,13 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
 
     flake-utils.url = "github:numtide/flake-utils";
 
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        flake-utils.follows = "flake-utils";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
@@ -31,11 +25,7 @@
           overlays = [ (import rust-overlay) ];
         };
 
-        rustToolchain = pkgs.pkgsBuildHost.rust-bin.stable.latest.default.override {
-          targets = [ "aarch64-unknown-linux-gnu" ];
-        };
-
-        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+        craneLib = (crane.mkLib pkgs).overrideToolchain (p: p.rust-bin.stable.latest.default);
 
         # Note: we have to use the `callPackage` approach here so that Nix
         # can "splice" the packages in such a way that dependencies are
@@ -55,7 +45,7 @@
           , stdenv
           }:
           craneLib.buildPackage {
-            src = craneLib.cleanCargoSource (craneLib.path ./.);
+            src = craneLib.cleanCargoSource ./.;
             strictDeps = true;
 
             # Build-time tools which are target agnostic. build = host = target = your-machine.
@@ -75,6 +65,7 @@
             # overridden above.
             nativeBuildInputs = [
               pkg-config
+              stdenv.cc
             ] ++ lib.optionals stdenv.buildPlatform.isDarwin [
               libiconv
             ];
@@ -100,12 +91,13 @@
             cargoExtraArgs = "--target aarch64-unknown-linux-gnu";
             # CARGO_BUILD_TARGET = "aarch64-unknown-linux-gnu";
 
-            # This environment variable may be necessary if any of your dependencies use a
+            # These environment variables may be necessary if any of your dependencies use a
             # build-script which invokes the `cc` crate to build some other code. The `cc` crate
             # should automatically pick up on our target-specific linker above, but this may be
             # necessary if the build script needs to compile and run some extra code on the build
             # system.
             HOST_CC = "${stdenv.cc.nativePrefix}cc";
+            TARGET_CC = "${stdenv.cc.targetPrefix}cc";
           };
 
         # Assuming the above expression was in a file called myCrate.nix

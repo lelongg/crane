@@ -1,4 +1,5 @@
 { downloadCargoPackageFromGit
+, internalPercentDecode
 , lib
 , pkgsBuildBuild
 }:
@@ -22,8 +23,9 @@ let
   inherit (lib)
     concatMapStrings
     concatStrings
-    concatStringsSep
+    concatMapStringsSep
     escapeShellArg
+    flip
     groupBy
     hasPrefix
     last
@@ -37,6 +39,7 @@ let
 in
 { lockPackages
 , outputHashes ? { }
+, overrideVendorGitCheckout ? _: drv: drv
 }:
 let
   parseGitUrl = p:
@@ -75,9 +78,13 @@ let
     };
 
   # Local crates will show up in the lock file with no checksum/source
-  lockedPackagesFromGit = filter
+  # NB: cargo started url encoding source urls starting with version 4
+  # but we need to undo that as package fetching and cargo configs expect
+  # the unencoded URLs.
+  lockedPackagesFromGit = map (lib.mapAttrs (_: internalPercentDecode)) (filter
     (p: hasPrefix "git" (p.source or ""))
-    lockPackages;
+    lockPackages
+  );
   lockedGitGroups = groupBy (p: p.id) (map
     (p: (parseGitUrl p) // { package = p; })
     lockedPackagesFromGit
@@ -92,31 +99,30 @@ let
           else if p ? branch then "refs/heads/${p.branch}"
           else null;
 
-        extractedPackages = downloadCargoPackageFromGit {
+        psLockMetadata = map (p: p.package) ps;
+
+        extractedPackages = overrideVendorGitCheckout psLockMetadata (downloadCargoPackageFromGit {
           inherit (p) git;
           inherit ref;
           rev = p.lockedRev;
-          sha256 = outputHashes.${p.package.source} or (lib.warnIf
+          hash = outputHashes.${p.package.source} or (lib.warnIf
             (outputHashes != { })
             "No output hash provided for ${p.package.source}"
             null
           );
-        };
+        });
 
         # NB: we filter out any crates NOT in the lock file
         # as the repo could have other crates we don't need
         # (e.g. testing crates which might not even build properly)
         # https://github.com/ipetkov/crane/issues/60
-        linkPsInLock = concatStringsSep "\n" (map
-          (p:
-            let
-              name = escapeShellArg p.package.name;
-              version = escapeShellArg p.package.version;
-              vendoredName = "${name}-${version}";
-            in
-            "ln -s ${extractedPackages}/${vendoredName} $out/${vendoredName}"
-          )
-          ps
+        linkPsInLock = flip (concatMapStringsSep "\n") psLockMetadata (p:
+          let
+            name = escapeShellArg p.name;
+            version = escapeShellArg p.version;
+            vendoredName = "${name}-${version}";
+          in
+          "ln -s ${extractedPackages}/${vendoredName} $out/${vendoredName}"
         );
       in
       nameValuePair (hash id) (runCommandLocal "linkLockedDeps" { } ''

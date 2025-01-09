@@ -12,15 +12,25 @@ let
     - `pname` and `version` are explicitly set 
   '';
 
-  src = args.src or throwMsg;
-  cargoToml = args.cargoToml or (args.src + "/Cargo.toml");
+  origSrc = src:
+    if src ? _isLibCleanSourceWith
+    then src.origSrc
+    else src;
+
+  src = origSrc (args.src or throwMsg);
+  cargoToml = args.cargoToml or (src + "/Cargo.toml");
   cargoTomlContents = args.cargoTomlContents or (
     if builtins.pathExists cargoToml
     then builtins.readFile cargoToml
     else throwMsg
   );
 
-  toml = builtins.fromTOML cargoTomlContents;
+  # NB: if `src` is derived via `mkDummySrc` the Cargo.toml will contain store paths
+  # (e.g. build script stubs), which the fromTOML does not like since the context isn't
+  # threaded through (error is `the string ... is not allowed to refer to a store path`).
+  # We can work around this by discarding the context before parsing the TOML since we don't
+  # actually care about any dependency derivations, we just want to parse the name and version
+  toml = builtins.fromTOML (builtins.unsafeDiscardStringContext cargoTomlContents);
 
   debugPath =
     if args ? cargoTomlContents
@@ -33,19 +43,24 @@ let
     `NIX_ABORT_ON_WARN=1 nix --option pure-eval false --show-trace ...`
   '';
 
-  traceMsg = tomlName: drvName: placeholder: lib.flip lib.trivial.warn placeholder ''
+  traceMsg = tomlName: drvName: placeholder: workspaceHints: lib.flip lib.trivial.warn placeholder ''
     crane will use a placeholder value since `${tomlName}` cannot be found in ${debugPath}
     to silence this warning consider one of the following:
     - setting `${drvName} = "...";` in the derivation arguments explicitly
-    - setting `package.${tomlName} = "..."` or `workspace.package.${tomlName} = "..."` in the root Cargo.toml
+    - setting `package.${tomlName} = "..."` or ${lib.concatStringsSep " or " workspaceHints} in the root Cargo.toml
     - explicitly looking up the values from a different Cargo.toml via 
       `craneLib.crateNameFromCargoToml { cargoToml = ./path/to/Cargo.toml; }`
     ${hint}
   '';
 
-  internalName = internalCrateNameFromCargoToml toml;
+  internalName = internalCrateNameFromCargoToml toml debugPath;
 in
 {
-  pname = internalName.pname or (traceMsg "name" "pname" "cargo-package");
-  version = internalName.version or (traceMsg "version" "version" "0.0.1");
+  pname = internalName.pname or (traceMsg "name" "pname" "cargo-package" [
+    ''`package.metadata.crane.name` = "..."''
+    ''`workspace.metadata.crane.name` = "..."''
+  ]);
+  version = internalName.version or (traceMsg "version" "version" "0.0.1" [
+    ''`workspace.package.version` = "..."''
+  ]);
 }

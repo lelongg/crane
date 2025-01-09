@@ -1,19 +1,18 @@
 {
   description = "A Nix library for building cargo projects. Never build twice thanks to incremental artifact caching.";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs = { };
 
   nixConfig = {
     extra-substituters = [ "https://crane.cachix.org" ];
     extra-trusted-public-keys = [ "crane.cachix.org-1:8Scfpmn9w+hGdXH/Q9tTLiYAE/2dnJYRJP7kl80GuRk=" ];
   };
 
-  outputs = { nixpkgs, ... }:
+  outputs = { ... }:
     let
-      mkLib = pkgs: import ./lib {
-        inherit (pkgs) lib newScope;
+      mkLib = pkgs: import ./default.nix {
+        inherit pkgs;
       };
-
       nodes = (builtins.fromJSON (builtins.readFile ./test/flake.lock)).nodes;
       inputFromLock = name:
         let
@@ -59,6 +58,11 @@
           path = ./examples/alt-registry;
         };
 
+        build-std = {
+          description = "Build a cargo project while also compiling the standard library";
+          path = ./examples/build-std;
+        };
+
         cross-musl = {
           description = "Building static binaries with musl";
           path = ./examples/cross-musl;
@@ -95,6 +99,11 @@
           path = ./examples/quick-start-simple;
         };
 
+        quick-start-workspace = {
+          description = "Build a cargo workspace with hakari";
+          path = ./examples/quick-start-workspace;
+        };
+
         sqlx = {
           description = "Build a cargo project which uses SQLx";
           path = ./examples/sqlx;
@@ -112,10 +121,12 @@
       };
     } // eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        nixpkgs = inputFromLock "nixpkgs";
+        pkgs = import nixpkgs {
+          inherit system;
+        };
 
-        # To override do: lib.overrideScope (self: super: { ... });
-        lib = mkLib pkgs;
+        myLib = mkLib pkgs;
 
         checks =
           let
@@ -136,11 +147,10 @@
           };
       in
       {
-        inherit checks lib;
+        inherit checks;
 
         packages = import ./pkgs {
-          inherit pkgs;
-          myLib = lib;
+          inherit pkgs myLib;
         };
 
         formatter = pkgs.nixpkgs-fmt;
@@ -151,6 +161,7 @@
             mdbook
             nix-eval-jobs
             nixpkgs-fmt
+            taplo
           ];
         };
       });

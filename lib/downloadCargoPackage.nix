@@ -5,7 +5,7 @@
 let
   inherit (pkgsBuildBuild)
     fetchurl
-    runCommand;
+    stdenv;
 in
 { name
 , version
@@ -20,8 +20,28 @@ let
     sha256 = checksum;
   });
 in
-runCommand "cargo-package-${name}-${version}" { } ''
-  mkdir -p $out
-  tar -xzf ${tarball} -C $out --strip-components=1
-  echo '{"files":{}, "package":"${checksum}"}' > $out/.cargo-checksum.json
-''
+stdenv.mkDerivation {
+  inherit version;
+  pname = "cargo-package-${name}";
+
+  dontConfigure = true;
+  dontBuild = true;
+  dontFixup = true;
+
+  unpackPhase = ''
+    runHook preUnpack
+    mkdir -p crate
+    tar -xzf ${tarball} -C crate --strip-components=1
+    runHook postUnpack
+  '';
+
+  sourceRoot = "./crate";
+
+  installPhase = ''
+    runHook preInstall
+    mkdir -p $out
+    cp -r -t $out .
+    echo '{"files":{}, "package":"${checksum}"}' > $out/.cargo-checksum.json
+    runHook postInstall
+  '';
+}

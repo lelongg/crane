@@ -4,10 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
 
     flake-utils.url = "github:numtide/flake-utils";
   };
@@ -19,14 +16,17 @@
 
         inherit (pkgs) lib;
 
-        craneLib = crane.lib.${system};
+        craneLib = crane.mkLib pkgs;
 
-        sqlFilter = path: _type: null != builtins.match ".*sql$" path;
-        sqlOrCargo = path: type: (sqlFilter path type) || (craneLib.filterCargoSources path type);
-
-        src = lib.cleanSourceWith {
-          src = craneLib.path ./.; # The original, unfiltered source
-          filter = sqlOrCargo;
+        unfilteredRoot = ./.; # The original, unfiltered source
+        src = lib.fileset.toSource {
+          root = unfilteredRoot;
+          fileset = lib.fileset.unions [
+            # Default files from crane (Rust and cargo files)
+            (craneLib.fileset.commonCargoSources unfilteredRoot)
+            # Include all the .sql migrations as well
+            ./migrations
+          ];
         };
 
         # Common arguments can be set here to avoid repeating them later

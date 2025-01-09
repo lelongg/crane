@@ -4,10 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
 
     fenix = {
       url = "github:nix-community/fenix";
@@ -30,8 +27,8 @@
 
         inherit (pkgs) lib;
 
-        craneLib = crane.lib.${system};
-        src = craneLib.cleanCargoSource (craneLib.path ./.);
+        craneLib = crane.mkLib pkgs;
+        src = craneLib.cleanCargoSource ./.;
 
         # Common arguments can be set here to avoid repeating them later
         commonArgs = {
@@ -91,6 +88,12 @@
             inherit src;
           };
 
+          my-crate-toml-fmt = craneLib.taploFmt {
+            src = pkgs.lib.sources.sourceFilesBySuffices src [ ".toml" ];
+            # taplo arguments can be further customized below as needed
+            # taploExtraArgs = "--config ./taplo.toml";
+          };
+
           # Audit dependencies
           my-crate-audit = craneLib.cargoAudit {
             inherit src advisory-db;
@@ -108,6 +111,7 @@
             inherit cargoArtifacts;
             partitions = 1;
             partitionType = "count";
+            cargoNextestPartitionsExtraArgs = "--no-tests=pass";
           });
         };
 

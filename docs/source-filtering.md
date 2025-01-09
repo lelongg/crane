@@ -17,7 +17,7 @@ non-Rust/non-cargo related files. It can be used like so:
 ```nix
 craneLib.buildPackage {
   # other attributes omitted
-  src = craneLib.cleanCargoSource (craneLib.path ./.);
+  src = craneLib.cleanCargoSource ./.;
 }
 ```
 
@@ -37,8 +37,36 @@ in
 craneLib.buildPackage {
   # other attributes omitted
   src = lib.cleanSourceWith {
-    src = craneLib.path ./.; # The original, unfiltered source
+    src = ./.; # The original, unfiltered source
     filter = markdownOrCargo;
+    name = "source"; # Be reproducible, regardless of the directory name
   };
 }
 ```
+
+## Fileset filtering
+
+A more composable alternative to source filtering is using [filesets]:
+
+```nix
+let
+  unfilteredRoot = ./.; # The original, unfiltered source
+  src = lib.fileset.toSource {
+    root = unfilteredRoot;
+    fileset = lib.fileset.unions [
+      # Default files from crane (Rust and cargo files)
+      (craneLib.fileset.commonCargoSources unfilteredRoot)
+      # Also keep any markdown files
+      (lib.fileset.fileFilter (file: file.hasExt == "md") unfilteredRoot)
+      # Example of a folder for images, icons, etc
+      (lib.fileset.maybeMissing ./assets)
+    ];
+  };
+in
+craneLib.buildPackage {
+  # other attributes omitted
+  inherit src;
+}
+```
+
+[filesets]: https://nixos.org/manual/nixpkgs/unstable/#sec-functions-library-fileset

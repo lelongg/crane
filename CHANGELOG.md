@@ -7,6 +7,225 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ## Unreleased
 
 ### Added
+* `cargoNextest` now supports passing `cargoNextestPartitionsExtraArgs` to each
+  `cargo nextest` partition run.
+* Add self-reference `craneLib` to crane lib instance.
+
+## [0.20.0] - 2024-12-21
+
+### Changed
+* **Breaking**: dropped compatibility for Nix versions below 2.24.10
+* **Breaking**: dropped compatibility for nixpkgs-23.11
+* **Breaking** (technically): `buildPackage`'s installation behavior has been
+  split into two steps: binaries are now installed into a temporary directory as
+  a post build hook (to avoid interference from the check phase clobbering
+  resultant binaries with development features enabled) followed by an actual
+  installation (from said directory) during the install phase. If you use a
+  custom build phase with `buildPackage` you may need to ensure the additional
+  post build hook defined in `installFromCargoBuildLogHook` runs (or follow the
+  error messages to resolve any build issues).
+* `mkDummySrc` has been reworked to match cargo's `autobin` detection logic,
+  meaning that only real binary targets defined by the project will be dummified
+  if they exist (no more injecting `src/bin/crane-dummy-*`). This does mean that
+  adding a new bin target definition will invalidate caches and require
+  rebuilding all dependencies once more. (If this is a frequent enough
+  occurrence for your project to cause headaches, please open an issue!)
+
+### Fixed
+* `mkDummySrc` will deduplicate discovered and declared binary targets when
+  dummifying sources
+* `crateNameFromCargoToml` will ignore store contexts when parsing a Cargo.toml
+  file (avoiding errors like `the string ... is not allowed to refer to a store
+  path`).
+* `vendorGitDeps` will perform a basic URL-decoding of git dependency entries in
+  the `Cargo.lock` file since lockfiles now encode special characters starting
+  at version 4
+
+### Meta
+* Dropped support for publishing releases to https://flakestry.dev/
+
+## [0.19.4] - 2024-11-30
+
+### Fixed
+* `removeReferencesToVendoredSources` now deduplicates any found references to
+  avoid pathological memory usage before removing them.
+* `buildDepsOnly` will calculate fallback `pname`/`version`/`cargoVendorDir`
+  attributes using `dummySrc` if it was specified (rather than attempting to use
+  `src`)
+
+## [0.19.3] - 2024-11-18
+A republish of 0.19.2 which was incorrectly tagged.
+
+## [0.19.2] - 2024-11-18
+
+### Added
+* Added a number of fileset helpers to more easily compose source filtering:
+   * `fileset.cargoTomlAndLock`: for `Cargo.toml` and `Cargo.lock` files
+   * `fileset.commonCargoSources`: for files commonly used by cargo projects
+   * `fileset.configToml`: for `config.toml` files
+   * `fileset.rust`: for `*.rs` files
+   * `fileset.toml`: for `*.toml` files
+
+### Fixed
+* `buildTrunkPackage` will pass in `--release=true` (instead of just
+  `--release`) for trunk versions 0.21 or higher to avoid argument ambiguities
+* `buildTrunkPackage` will now correctly honor `buildPhaseCargoCommand` if
+  specified (previously the value of `buildPhaseCommand` was incorrectly being
+  used)
+* `removeReferencesToVendoredSourcesHook` avoids referencing `/dev/fd`
+  directly since it may not be present on certain platforms
+
+## [0.19.1] - 2024-10-12
+
+### Added
+
+* `cargoDocTest` is now available as an alternative to `cargoTest` which runs
+  only doc tests.
+
+### Changed
+
+* `buildDepsOnly` now sets `CRANE_BUILD_DEPS_ONLY` as an environment variable
+  when it runs. Build hooks can use this as a shortcut to determine whether
+  running inside of a `buildDepsOnly` derivation in case they need to tailor
+  their behavior accordingly.
+
+### Fixed
+* Vendoring dependencies avoids creating malformed TOML configurations in
+  situations where registry name/url definitions cannot be found. When this
+  happens a warning will be printed out during evaluation to highlight the
+  issue.
+
+## [0.19.0] - 2024-09-25
+
+### Added
+* `taploFmt` is now available for checking TOML formatting
+
+### Changed
+* **Breaking** (technically): `buildPackage` no longer adds `jq` to
+  `nativeBuildInputs` as doing so can result in rebuilding any `*-sys` crates
+  which rely on `PKG_CONFIG_PATH` remaining stable
+* **Breaking**: `downloadCargoPackageFromGit` now takes `hash` instead of
+  `sha256` when specifying an output hash for the download
+* `installFromCargoBuildLogHook` no longer assumes or requires that `jq` is
+  available on `$PATH` and will instead directly reference `pkgs.jq`
+* `downloadCargoPackageFromGit` will now set `fetchLFS = true` when fetching git
+  repos with defined output hashes
+
+### Fixed
+* `cargoDoc` correctly honors `docInstallRoot` when specified
+* `cargoDoc` falls back to installing from `./target/doc` even if
+  `$CARGO_BUILD_TARGET` is set but `./target/$CARGO_BUILD_TARGET/doc` does not
+  exist
+
+### Removed
+* The deprecated top-level (flake) attribute `lib` no longer exists. Please use
+  `mkLib` with an instance of `pkgs` instead.
+
+## [0.18.1] - 2024-08-22
+
+### Fixed
+* Fixed vendoring dependencies from an alternative registry which they
+  themselves have dependencies on crates from _other_ registries.
+* Fixed `cargoNextest`'s positioning of `cargoExtraArgs` to form a valid command
+  invocation when specified.
+
+## [0.18.0] - 2024-07-05
+
+### Changed
+* **Breaking**: dropped compatibility for Nix versions below 2.18.2
+* **Breaking**: dropped compatibility for nixpkgs-23.11.
+* The guidance around using (both) `cleanCargoSource` and `path` has been
+  updated. Namely, it is no longer necessary to call both (e.g.
+  `craneLib.cleanCargoSource (craneLib.path ./.)`): it is recommended to either
+  use `craneLib.cleanCargoSource ./.` directly (if the default source cleaning
+  is desired) or `craneLib.path ./.` (if not).
+* `overrideToolchain` has been updated to better handle cross-compilation
+  splicing for a customized toolchain. This means that `overrideToolchain`
+  should now be called with a function which constructs said toolchain for any
+  given `pkgs` instantiation. For example: `craneLib.overrideToolchain (p:
+  p.rust-bin.stable.latest.default)`
+
+### Fixed
+* The cross compilation example also hows how to set the `TARGET_CC` environment
+  variable which may be required by some build scripts to function properly
+* `vendorCargoDeps` and `crateNameFromCargoToml` do their best to avoid IFD when
+  `src` is the result of `lib.cleanSourceWith` (and by extension
+  `cleanCargoSource`)
+* `removeReferencesToVendoredSources` handles the edge case where
+  `cargoVendorDir` does not point to a path within the Nix store
+* It is now possible to use `.overrideScope` to change what instance of
+  `craneUtils` will be used during vendoring.
+
+## [0.17.3] - 2024-06-02
+
+### Fixed
+* `removeReferencesToVendoredSources` correctly signs aarch64-darwin builds
+  (which was accidentally broken in 0.17.2)
+
+## [0.17.2] - 2024-05-26
+
+### Fixed
+* `removeReferencesToVendoredSources` has been optimized to search for source
+  references only once. For derivations which install many files, this phase can
+  run up to 99% faster than before.
+* `cleanCargoToml` now cleans underscored versions of the same attributes (e.g.
+  `lib.proc-macro` and `lib.proc_macro`)
+
+## [0.17.1] - 2024-05-19
+
+### Fixed
+* `downloadCargoPackage` and `downloadCargoPackageFromGit` no longer run the
+  fixup phase by default, avoiding issues with source directories and files
+  being moved to different locations
+* `downloadCargoPackage` now unpacks and installs from a fresh directory,
+  avoiding having build environment files (like `env-vars`) appearing in the
+  output
+
+## [0.17.0] - 2024-05-18
+
+### Added
+* `cargoDoc` now supports `docInstallRoot` to influence which directory will be
+  installed to `$out/share` (which can be useful when cross-compiling). By
+  default `$CARGO_TARGET_DIR` and `$CARGO_BUILD_TARGET` (if set) will be taken
+  into account
+* `crateNameFromCargoToml` now supports selecting a derivation name by setting
+  `package.metadata.crane.name` or `workspace.metadata.crane.name` in the root
+  `Cargo.toml`
+* `vendorCargoDeps`, `vendorCargoRegistries`, `vendorGitDeps`, and
+  `vendorMultipleCargoDeps` now support arbitrary overrides (i.e. patching) at
+  the individual crate/repo level when vendoring sources.
+
+### Changed
+* **Breaking** `cargoAudit` no longer accepts `cargoExtraArgs` (since it does
+  not support the regular set of `cargo` flags like most cargo-commands do, it
+  does not make much sense to propagate those flags through)
+* `buildTrunkPackage` now sets `env.TRUNK_SKIP_VERSION_CHECK = "true";` if not
+  specified
+
+### Deprecations
+* In the future, `crateNameFromCargoToml` will stop considering
+  `workspace.package.name` in the root `Cargo.toml` when determining the crate
+  name. This attribute is not recognized by cargo (which will emit its own
+  warnings about it) and should be avoided going forward.
+* In the future, `crane.lib.${system}` will be removed. Please switch to using
+  `(crane.mkLib nixpkgs.lib.${system})` as an equivalent alternative.
+
+## [0.16.6] - 2024-05-04
+
+### Fixed
+* Same as 0.16.5 but with the correct tag deployed to Flakestry/FlakeHub
+
+## [0.16.5] - 2024-05-04
+
+### Fixed
+* Workspace inheritance for git dependencies now ignores (removes) all comments
+  around dependency declarations to work around a mangling bug in `toml_edit`
+  (see https://github.com/ipetkov/crane/issues/527 and
+  https://github.com/toml-rs/toml/issues/691)
+
+## [0.16.4] - 2024-04-07
+
+### Added
 * Added a warning if an unsupported version of nixpkgs is used
 
 ### Changed
@@ -17,6 +236,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ### Fixed
 * `inheritCargoArtifactsHook` and `installCargoArtifactsHook` now correctly
   handle the case when `CARGO_TARGET_DIR` is set to a nested directory
+* Dependency vendoring now correctly takes unused patch dependencies into
+  account
 
 ## [0.16.3] - 2024-03-19
 
@@ -610,6 +831,21 @@ files parsed as nix attribute sets.
 ## 0.1.0 - 2022-01-22
 - First release
 
+[0.20.0]: https://github.com/ipetkov/crane/compare/v0.19.4...v0.20.0
+[0.19.4]: https://github.com/ipetkov/crane/compare/v0.19.3...v0.19.4
+[0.19.3]: https://github.com/ipetkov/crane/compare/v0.19.2...v0.19.3
+[0.19.2]: https://github.com/ipetkov/crane/compare/v0.19.1...v0.19.2
+[0.19.1]: https://github.com/ipetkov/crane/compare/v0.19.0...v0.19.1
+[0.19.0]: https://github.com/ipetkov/crane/compare/v0.18.1...v0.19.0
+[0.18.1]: https://github.com/ipetkov/crane/compare/v0.18.0...v0.18.1
+[0.18.0]: https://github.com/ipetkov/crane/compare/v0.17.3...v0.18.0
+[0.17.3]: https://github.com/ipetkov/crane/compare/v0.17.2...v0.17.3
+[0.17.2]: https://github.com/ipetkov/crane/compare/v0.17.1...v0.17.2
+[0.17.1]: https://github.com/ipetkov/crane/compare/v0.17.0...v0.17.1
+[0.17.0]: https://github.com/ipetkov/crane/compare/v0.16.6...v0.17.0
+[0.16.6]: https://github.com/ipetkov/crane/compare/v0.16.5...v0.16.6
+[0.16.5]: https://github.com/ipetkov/crane/compare/v0.16.4...v0.16.5
+[0.16.4]: https://github.com/ipetkov/crane/compare/v0.16.3...v0.16.4
 [0.16.3]: https://github.com/ipetkov/crane/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/ipetkov/crane/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/ipetkov/crane/compare/v0.16.0...v0.16.1

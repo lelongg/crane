@@ -1,7 +1,6 @@
 { buildDepsOnly
 , crateNameFromCargoToml
 , installFromCargoBuildLogHook
-, jq
 , lib
 , mkCargoDerivation
 , removeReferencesToVendoredSourcesHook
@@ -56,20 +55,29 @@ mkCargoDerivation (cleanedArgs // memoizedArgs // {
   '';
 
   installPhaseCommand = args.installPhaseCommand or ''
-    if [ -n "$cargoBuildLog" -a -f "$cargoBuildLog" ]; then
-      installFromCargoBuildLog "$out" "$cargoBuildLog"
+    if [ -n "$postBuildInstallFromCargoBuildLogOut" -a -d "$postBuildInstallFromCargoBuildLogOut" ]; then
+      echo "actually installing contents of $postBuildInstallFromCargoBuildLogOut to $out"
+      mkdir -p $out
+      find "$postBuildInstallFromCargoBuildLogOut" -mindepth 1 -maxdepth 1 | xargs -r mv -t $out
     else
       echo ${lib.strings.escapeShellArg ''
-        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        $cargoBuildLog is either undefined or does not point to a valid file location!
-        By default `buildPackage` will capture cargo's output and use it to determine which binaries
-        should be installed (instead of just guessing based on what is present in cargo's target directory).
-        If you are overriding the derivation with a custom build step, you have two options:
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        $postBuildInstallFromCargoBuildLogOut is either undefined or does not point to a
+        valid location! By default `buildPackage` will expect that cargo's output was
+        captured and the resulting binaries preinstalled in a temporary location to avoid
+        interference by the check phase.
+
+        If you are defining your own custom build step, you have two options:
         1. override `installPhaseCommand` with the appropriate installation steps
-        2. ensure that cargo's build log is captured in a file and point $cargoBuildLog at it
-        At a minimum, the latter option can be achieved with running:
-            cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
-            cargo build --release --message-format json-render-diagnostics >"$cargoBuildLog"
+        2. ensure that cargo's build log is captured in a file and point
+           $postBuildInstallFromCargoBuildLogOut at it
+
+        At a minimum, the latter option can be achieved with a build phase that runs:
+             cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
+             cargo build --release --message-format json-render-diagnostics >"$cargoBuildLog"
+             postBuildInstallFromCargoBuildLogOut=$(mktemp -d cargoBuildTempOutXXXX)
+             installFromCargoBuildLog "$postBuildInstallFromCargoBuildLogOut" "$cargoBuildLog"
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       ''}
 
       false
@@ -77,8 +85,9 @@ mkCargoDerivation (cleanedArgs // memoizedArgs // {
   '';
 
   nativeBuildInputs = (args.nativeBuildInputs or [ ]) ++ [
+    # NB: avoid adding any non-hook packages here. Doing so will end up
+    # changing PKG_CONFIG_PATH and cause rebuilds of `*-sys` crates.
     installFromCargoBuildLogHook
-    jq
     removeReferencesToVendoredSourcesHook
   ];
 })

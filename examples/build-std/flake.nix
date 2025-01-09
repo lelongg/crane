@@ -4,19 +4,13 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
 
     flake-utils.url = "github:numtide/flake-utils";
 
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        flake-utils.follows = "flake-utils";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
@@ -28,18 +22,19 @@
           overlays = [ (import rust-overlay) ];
         };
 
-        rustToolchain = pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
+        rustToolchainFor = p: p.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
           extensions = [ "rust-src" ];
           targets = [ "x86_64-unknown-linux-gnu" ];
         });
+        rustToolchain = rustToolchainFor pkgs;
 
         # NB: we don't need to overlay our custom toolchain for the *entire*
         # pkgs (which would require rebuidling anything else which uses rust).
         # Instead, we just want to update the scope that crane will use by appending
         # our specific toolchain there.
-        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchainFor;
 
-        src = craneLib.cleanCargoSource (craneLib.path ./.);
+        src = craneLib.cleanCargoSource ./.;
 
         my-crate = craneLib.buildPackage {
           inherit src;
@@ -58,7 +53,7 @@
               # to the repo and import it with `./path/to/rustlib/Cargo.lock` which
               # will avoid IFD entirely but will require manually keeping the file
               # up to date!
-              "${rustToolchain.passthru.availableComponents.rust-src}/lib/rustlib/src/rust/Cargo.lock"
+              "${rustToolchain.passthru.availableComponents.rust-src}/lib/rustlib/src/rust/library/Cargo.lock"
             ];
           };
 
@@ -83,7 +78,6 @@
           # Extra inputs can be added here; cargo and rustc are provided by default
           # from the toolchain that was specified earlier.
           packages = [
-            # rustToolchain
           ];
         };
       });

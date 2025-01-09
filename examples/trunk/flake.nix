@@ -4,27 +4,17 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    # The version of wasm-bindgen-cli needs to match the version in Cargo.lock
-    # Update this to include the version you need
-    nixpkgs-for-wasm-bindgen.url = "github:NixOS/nixpkgs/4e6868b1aa3766ab1de169922bb3826143941973";
-
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
 
     flake-utils.url = "github:numtide/flake-utils";
 
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        flake-utils.follows = "flake-utils";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, crane, flake-utils, rust-overlay, nixpkgs-for-wasm-bindgen, ... }:
+  outputs = { self, nixpkgs, crane, flake-utils, rust-overlay, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -34,28 +24,27 @@
 
         inherit (pkgs) lib;
 
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+        rustToolchainFor = p: p.rust-bin.stable.latest.default.override {
           # Set the build targets supported by the toolchain,
           # wasm32-unknown-unknown is required for trunk
           targets = [ "wasm32-unknown-unknown" ];
         };
-        craneLib = ((crane.mkLib pkgs).overrideToolchain rustToolchain).overrideScope (_final: _prev: {
-          # The version of wasm-bindgen-cli needs to match the version in Cargo.lock. You
-          # can unpin this if your nixpkgs commit contains the appropriate wasm-bindgen-cli version
-          inherit (import nixpkgs-for-wasm-bindgen { inherit system; }) wasm-bindgen-cli;
-        });
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchainFor;
 
         # When filtering sources, we want to allow assets other than .rs files
-        src = lib.cleanSourceWith {
-          src = ./.; # The original, unfiltered source
-          filter = path: type:
-            (lib.hasSuffix "\.html" path) ||
-            (lib.hasSuffix "\.scss" path) ||
+        unfilteredRoot = ./.; # The original, unfiltered source
+        src = lib.fileset.toSource {
+          root = unfilteredRoot;
+          fileset = lib.fileset.unions [
+            # Default files from crane (Rust and cargo files)
+            (craneLib.fileset.commonCargoSources unfilteredRoot)
+            (lib.fileset.fileFilter
+              (file: lib.any file.hasExt [ "html" "scss" ])
+              unfilteredRoot
+            )
             # Example of a folder for images, icons, etc
-            (lib.hasInfix "/assets/" path) ||
-            # Default filter from crane (allow .rs files)
-            (craneLib.filterCargoSources path type)
-          ;
+            (lib.fileset.maybeMissing ./assets)
+          ];
         };
 
         # Common arguments can be set here to avoid repeating them later
@@ -87,9 +76,15 @@
           inherit cargoArtifacts;
           # The version of wasm-bindgen-cli here must match the one from Cargo.lock.
           wasm-bindgen-cli = pkgs.wasm-bindgen-cli.override {
-            version = "0.2.90";
-            hash = "sha256-X8+DVX7dmKh7BgXqP7Fp0smhup5OO8eWEhn26ODYbkQ=";
-            cargoHash = "sha256-ckJxAR20GuVGstzXzIj1M0WBFj5eJjrO2/DRMUK5dwM=";
+            version = "0.2.99";
+            hash = "sha256-1AN2E9t/lZhbXdVznhTcniy+7ZzlaEp/gwLEAucs6EA=";
+            cargoHash = "sha256-DbwAh8RJtW38LJp+J9Ht8fAROK9OabaJ85D9C/Vkve4=";
+            # When updating to a new version comment out the above two lines and
+            # uncomment the bottom two lines. Then try to do a build, which will fail
+            # but will print out the correct value for `hash`. Replace the value and then
+            # repeat the process but this time the printed value will be for `cargoHash`
+            # hash = lib.fakeHash;
+            # cargoHash = lib.fakeHash;
           };
         });
 

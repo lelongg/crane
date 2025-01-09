@@ -4,10 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
 
     fenix = {
       url = "github:nix-community/fenix";
@@ -32,12 +29,20 @@
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
 
         my-crate = craneLib.buildPackage {
-          src = craneLib.cleanCargoSource (craneLib.path ./.);
+          src = craneLib.cleanCargoSource ./.;
 
           strictDeps = true;
           doCheck = false;
 
           CARGO_BUILD_TARGET = "x86_64-pc-windows-gnu";
+
+          # fixes issues related to libring
+          TARGET_CC = "${pkgs.pkgsCross.mingwW64.stdenv.cc}/bin/${pkgs.pkgsCross.mingwW64.stdenv.cc.targetPrefix}cc";
+
+          #fixes issues related to openssl
+          OPENSSL_DIR = "${pkgs.openssl.dev}";
+          OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
+          OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include/";
 
           depsBuildBuild = with pkgs; [
             pkgsCross.mingwW64.stdenv.cc

@@ -20,9 +20,9 @@ let
 
     buildTrunkPackage {
       wasm-bindgen-cli = pkgs.wasm-bindgen-cli.override {
-        version = "0.2.84";
-        hash = "sha256-0rK+Yx4/Jy44Fw5VwJ3tG243ZsyOIBBehYU54XP/JGk=";
-        cargoHash = "sha256-vcpxcRlW1OKoD64owFF6mkxSqmNrvY+y3Ckn5UwEQ50=";
+        version = "${default-wasm-bindgen-cli.version}";
+        hash = "${default-wasm-bindgen-cli.hash or "lib.fakeHash"}";
+        cargoHash = "${default-wasm-bindgen-cli.cargoHash or "lib.fakeHash"}";
       };
       ...
     }
@@ -63,6 +63,8 @@ mkCargoDerivation (args // {
     doCheck = args.doCheck or false;
   }));
 
+  env.TRUNK_SKIP_VERSION_CHECK = args.env.TRUNK_SKIP_VERSION_CHECK or "true";
+
   # Force trunk to not download dependencies, but set the version with
   # whatever tools actually make it into the builder's PATH
   preConfigure = ''
@@ -79,10 +81,10 @@ mkCargoDerivation (args // {
     echo "TRUNK_TOOLS_WASM_OPT=''${TRUNK_TOOLS_WASM_OPT}"
   '';
 
-  buildPhaseCargoCommand = args.buildPhaseCommand or ''
+  buildPhaseCargoCommand = args.buildPhaseCargoCommand or ''
     local profileArgs=""
     if [[ "$CARGO_PROFILE" == "release" ]]; then
-      profileArgs="--release"
+      profileArgs="--release${lib.optionalString (lib.versionAtLeast trunk.version "0.21") "=true"}"
     fi
 
     trunk ${trunkExtraArgs} build $profileArgs ${trunkExtraBuildArgs} "${trunkIndexPath}"
